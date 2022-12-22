@@ -67,6 +67,8 @@ void communicate()
             break;
         }
         printf("%s\n", buffer);
+        if (0 == strcmp(buffer, "disconnection done"))
+            return;
     }
 }
 

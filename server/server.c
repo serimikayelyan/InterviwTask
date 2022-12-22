@@ -50,9 +50,17 @@ void* communicate_with_client(void *arg)
             perror("ERROR reading from socket");
             return 0;
         }
-        printf("shell command: %s\n", bufferin);
         memset(bufferout, 0, MESSAGE_LENGTH);
-        execute_command(bufferin, bufferout);
+        if (0 == strcmp(bufferin, "disconnect\n")) {
+            memcpy(bufferout, "disconnection done", 18);
+            r = write(client->fd, bufferout, strlen(bufferout));
+            remove_client(client);
+            printf("client disconnected: %p\n", client);
+            return 0;
+        } else {
+            printf("client: %p, shell command: %s\n", client, bufferin);
+            execute_command(bufferin, bufferout);
+        }
         r = write(client->fd, bufferout, strlen(bufferout));
         if (r < 0) {
             perror("ERROR writing to socket");
@@ -63,6 +71,7 @@ void* communicate_with_client(void *arg)
 
 void add_client(struct client_info* client)
 {
+    pthread_mutex_lock(&clients_array_lock);
     int msize = (client_size + 1) * sizeof(struct client_info*);
     struct client_info** new_clients = malloc(msize);
     memcpy(new_clients, clients, client_size * sizeof(struct client_info*));
@@ -70,10 +79,12 @@ void add_client(struct client_info* client)
     new_clients[client_size] = client;
     clients = new_clients;
     client_size++;
+    pthread_mutex_unlock(&clients_array_lock);
 }
 
 void remove_client(struct client_info* client)
 {
+    pthread_mutex_lock(&clients_array_lock);
     int msize = (client_size - 1) * sizeof(struct client_info*);
     struct client_info** new_clients = malloc(msize);
     for (int i = 0,j = 0; i < client_size; i++) {
@@ -85,6 +96,7 @@ void remove_client(struct client_info* client)
     free(clients);
     clients = new_clients;
     client_size--;
+    pthread_mutex_unlock(&clients_array_lock);
 }
 
 int init_server_socket(int port)
@@ -109,6 +121,7 @@ int init_server_socket(int port)
         return -1;
     }
     listen(sock_fd, 5);
+    pthread_mutex_init(&clients_array_lock, NULL);
     return sock_fd;
 }
 
@@ -157,20 +170,6 @@ int main(int argc, char *argv[])
     int sockfd = init_server_socket(port);
     if (sockfd <= 0)
         return sockfd;
-//    for (int i = 0; i < 50; i++) {
-//        struct client_info* c = malloc(sizeof(struct client_info));//new client_info;//malloc(sizeof(struct client_info));
-//        c->fd = i;
-//        printf("i: %d, c: %p\n", i, c);
-//        add_client(c);
-//        for (int i = 0; i < client_size; i++)
-//            printf("%p ", clients[i]);
-//        printf("\n");
-//    }
-//    printf("5: %p\n", clients[5]);
-//    remove_client(clients[5]);
-//    for (int i = 0; i < client_size; i++)
-//        printf("%p ", clients[i]);
-//    printf("\nsocket created\n");
     accept_clients();
-    printf("socket finish\n");
+    printf("application finished\n");
 }
