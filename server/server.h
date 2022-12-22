@@ -1,4 +1,10 @@
 #include <netinet/in.h>
+#include <pthread.h>
+
+#define MESSAGE_LENGTH 1024
+
+// mutex to lock access to the shared array of clients info.
+pthread_mutex_t clients_array_lock;
 
 // variable to keep termination signal
 int sigterm = 0;
@@ -11,6 +17,7 @@ struct client_info
 {
     int fd; // socket descriptor for connected client
     struct sockaddr_in socket_addr;
+    pthread_t thread;    
 };
 
 // Handler for gracefully shutdown the server
@@ -41,3 +48,6 @@ int init_server_socket(int port);
 
 // Accept connection from new clients
 void accept_clients();
+
+// function working in thread to handle communication with client
+void* communicate_with_client(void *args);

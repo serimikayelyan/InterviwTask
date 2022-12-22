@@ -8,8 +8,57 @@
 
 #include "server.h"
 
-void sigterm_handler( int signum ) {
+void sigterm_handler( int signum )
+{
     sigterm = 1;
+}
+
+void execute_command(char* command, char* output)
+{
+    FILE* f;
+    char buf[MESSAGE_LENGTH];
+    if (strlen(command) > MESSAGE_LENGTH - 6) {
+        memcpy(output, "command is longer then 1024", 27);
+        return;
+    }
+    memcpy(command + strlen(command) - 1, " 2>&1", 5);
+    f = popen(command, "r");
+    int count = 0, size = 0;
+    char c;
+    while (1) {
+        c = fgetc(f);
+        if (feof(f))
+            break;
+        memcpy(output + count, &c, 1);
+        count++;
+        if (count > MESSAGE_LENGTH)
+            break;
+    }
+    if (0 >= count)
+        memcpy(output, "no output\n", 10);
+}
+
+void* communicate_with_client(void *arg)
+{
+    struct client_info* client = (struct client_info*)arg;
+    char bufferin[MESSAGE_LENGTH];
+    char bufferout[MESSAGE_LENGTH];
+    while (1) {
+        memset(bufferin, 0, MESSAGE_LENGTH);
+        int r = read(client->fd, bufferin, MESSAGE_LENGTH);
+        if (r < 0) {
+            perror("ERROR reading from socket");
+            return 0;
+        }
+        printf("shell command: %s\n", bufferin);
+        memset(bufferout, 0, MESSAGE_LENGTH);
+        execute_command(bufferin, bufferout);
+        r = write(client->fd, bufferout, strlen(bufferout));
+        if (r < 0) {
+            perror("ERROR writing to socket");
+            return 0;
+        }
+    }
 }
 
 void add_client(struct client_info* client)
@@ -41,31 +90,24 @@ void remove_client(struct client_info* client)
 int init_server_socket(int port)
 {
     struct sockaddr_in serv_addr;
-
     // Create socket file
     sock_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (sock_fd < 0) {
         perror("ERROR opening socket");
         return -1;
     }
-
     memset(&serv_addr, 0, sizeof(serv_addr));
-    
     // Set socket to use IPv4
     serv_addr.sin_family = AF_INET;
-
     // Set socket to listen all network interfaces
     serv_addr.sin_addr.s_addr = INADDR_ANY;
-
     // Set socket listening port
     serv_addr.sin_port = htons(port);
-
     // bind socket to interface and port set in serv_addr
     if (bind(sock_fd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
         perror ("ERROR on binding");
         return -1;
     }
-
     listen(sock_fd, 5);
     return sock_fd;
 }
@@ -81,16 +123,15 @@ void accept_clients()
             printf("terminated\n");
             break;
         }
-        printf("continue\n");
-//        c->fd = accept(sock_fd, (struct sockaddr *) &(c->socket_addr), &clilen);
-//        if (c->fd < 0) {
-//            perror("ERROR on accept");
-//            continue;
-//        }
-//        add_client(c);
-//        for (int i = 0; i < client_size; i++)
-//            printf("%p ", clients[i]);
-//        printf("\n");
+        c->fd = accept(sock_fd, (struct sockaddr *) &(c->socket_addr), &clilen);
+        if (c->fd < 0) {
+            perror("ERROR on accept");
+            free(c);
+            continue;
+        }
+        add_client(c);
+        pthread_create(&c->thread, NULL, communicate_with_client, c);
+        printf("new client connected: %p\n", c);
     }
 }
 
@@ -116,17 +157,17 @@ int main(int argc, char *argv[])
     int sockfd = init_server_socket(port);
     if (sockfd <= 0)
         return sockfd;
-    for (int i = 0; i < 50; i++) {
-        struct client_info* c = malloc(sizeof(struct client_info));//new client_info;//malloc(sizeof(struct client_info));
-        c->fd = i;
+//    for (int i = 0; i < 50; i++) {
+//        struct client_info* c = malloc(sizeof(struct client_info));//new client_info;//malloc(sizeof(struct client_info));
+//        c->fd = i;
 //        printf("i: %d, c: %p\n", i, c);
-        add_client(c);
+//        add_client(c);
 //        for (int i = 0; i < client_size; i++)
 //            printf("%p ", clients[i]);
 //        printf("\n");
-    }
-    printf("5: %p\n", clients[5]);
-    remove_client(clients[5]);
+//    }
+//    printf("5: %p\n", clients[5]);
+//    remove_client(clients[5]);
 //    for (int i = 0; i < client_size; i++)
 //        printf("%p ", clients[i]);
 //    printf("\nsocket created\n");
