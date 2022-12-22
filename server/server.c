@@ -1,26 +1,12 @@
 #include <stdio.h>
 #include <sys/types.h> 
 #include <sys/socket.h>
-#include <netinet/in.h>
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
 
-int sock_fd;
+#include "server.h"
 
-// Structure to hold all required client infos
-struct client_info
-{
-    int fd; // socket descriptor for connected client
-    struct sockaddr_in socket_addr;
-};
-
-struct client_info** clients = NULL;
-int client_size = 0;
-
-// dynamically add newly connected client infos
-// @params
-//  client - pointer to the struct for newly connected client
 void add_client(struct client_info* client)
 {
     int msize = (client_size + 1) * sizeof(struct client_info*);
@@ -32,9 +18,6 @@ void add_client(struct client_info* client)
     client_size++;
 }
 
-// remove disconnected client infos
-// @params
-//  client - pointer to the disconnected client info
 void remove_client(struct client_info* client)
 {
     int msize = (client_size - 1) * sizeof(struct client_info*);
@@ -50,11 +33,6 @@ void remove_client(struct client_info* client)
     client_size--;
 }
 
-// Create and initialize socket to listen for connections from clients
-// @params
-//  port - port number to listen
-// @return value
-//  created socket file descriptor if successfully
 int init_server_socket(int port)
 {
     struct sockaddr_in serv_addr;
@@ -87,17 +65,20 @@ int init_server_socket(int port)
     return sock_fd;
 }
 
-//void accept_clients()
-//{
-//    struct sockaddr_in cli_addr;
-//    int clilen = sizeof(cli_addr);
-//    newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
-//    if (newsockfd < 0) {
-//        perror("ERROR on accept");
-//        return newsockfd;
-//    }
-//    
-//}
+void accept_clients()
+{
+    while (1) {
+        struct client_info* c = malloc(sizeof(struct client_info));
+        struct sockaddr_in cli_addr;
+        int clilen = sizeof(c->socket_addr);
+        c->fd = accept(sock_fd, (struct sockaddr *) &(c->socket_addr), &clilen);
+        if (c->fd < 0) {
+            perror("ERROR on accept");
+            continue;
+        }
+        add_client(c);
+    }
+}
 
 int main(int argc, char *argv[])
 {
