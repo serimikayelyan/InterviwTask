@@ -4,8 +4,13 @@
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <signal.h>
 
 #include "server.h"
+
+void sigterm_handler( int signum ) {
+    sigterm = 1;
+}
 
 void add_client(struct client_info* client)
 {
@@ -71,17 +76,34 @@ void accept_clients()
         struct client_info* c = malloc(sizeof(struct client_info));
         struct sockaddr_in cli_addr;
         int clilen = sizeof(c->socket_addr);
-        c->fd = accept(sock_fd, (struct sockaddr *) &(c->socket_addr), &clilen);
-        if (c->fd < 0) {
-            perror("ERROR on accept");
-            continue;
+        sleep(1);
+        if (sigterm) {
+            printf("terminated\n");
+            break;
         }
-        add_client(c);
+        printf("continue\n");
+//        c->fd = accept(sock_fd, (struct sockaddr *) &(c->socket_addr), &clilen);
+//        if (c->fd < 0) {
+//            perror("ERROR on accept");
+//            continue;
+//        }
+//        add_client(c);
+//        for (int i = 0; i < client_size; i++)
+//            printf("%p ", clients[i]);
+//        printf("\n");
     }
 }
 
 int main(int argc, char *argv[])
 {
+
+    // subscribe for SIGINT and SIGTERM for gracefully shutdown
+    struct sigaction action;
+    memset(&action, 0, sizeof(action));
+    action.sa_handler = sigterm_handler;
+    sigaction(SIGTERM, &action, NULL);
+    sigaction(SIGINT, &action, NULL);
+
     if (argc < 2) {
          fprintf(stderr,"ERROR, no port provided\n");
          return 1;
@@ -97,17 +119,17 @@ int main(int argc, char *argv[])
     for (int i = 0; i < 50; i++) {
         struct client_info* c = malloc(sizeof(struct client_info));//new client_info;//malloc(sizeof(struct client_info));
         c->fd = i;
-        printf("i: %d, c: %p\n", i, c);
+//        printf("i: %d, c: %p\n", i, c);
         add_client(c);
-        for (int i = 0; i < client_size; i++)
-            printf("%p ", clients[i]);
-        printf("\n");
+//        for (int i = 0; i < client_size; i++)
+//            printf("%p ", clients[i]);
+//        printf("\n");
     }
     printf("5: %p\n", clients[5]);
     remove_client(clients[5]);
-    for (int i = 0; i < client_size; i++)
-        printf("%p ", clients[i]);
-    printf("\nsocket created\n");
-    sleep(999);
+//    for (int i = 0; i < client_size; i++)
+//        printf("%p ", clients[i]);
+//    printf("\nsocket created\n");
+    accept_clients();
     printf("socket finish\n");
 }

@@ -1,5 +1,8 @@
 #include <netinet/in.h>
 
+// variable to keep termination signal
+int sigterm = 0;
+
 // main socket file descriptor
 int sock_fd;
 
@@ -9,6 +12,9 @@ struct client_info
     int fd; // socket descriptor for connected client
     struct sockaddr_in socket_addr;
 };
+
+// Handler for gracefully shutdown the server
+void sigterm_handler( int signum );
 
 // array to store connected clients info in dynamic memory
 struct client_info** clients = NULL;
