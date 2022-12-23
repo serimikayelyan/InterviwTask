@@ -7,6 +7,7 @@
 #include <signal.h>
 
 #include "server.h"
+#include "../common/common.h"
 
 // mutex to lock access to the shared array of clients info.
 pthread_mutex_t clients_array_lock;
@@ -24,15 +25,85 @@ void sigterm_handler( int signum )
     sigterm = 1;
 }
 
+uint16_t gen_checksum(char* data)
+{
+    uint16_t length = (uint16_t)strlen(data);
+    uint16_t checksum = 0;
+    size_t even_length = length - length%2; // Round down to multiple of 2
+    int i;
+    for (i = 0; i < even_length; i += 2) {
+        uint16_t val = data[i] + 256 * data[i+1];
+        checksum += val;
+    }
+    if (i < length) { // Last byte if it's odd length
+        checksum += data[i];
+    }
+    return checksum;
+}
+
+int send_message(char* buf, struct client_info* client)
+{
+    if(0 >= strlen(buf)) {
+        return 1;
+    }
+    uint16_t len = (uint16_t)strlen(buf);
+    int m_size = sizeof(struct message) + len;
+    struct message* mes = malloc(m_size);
+    mes->len_l = len & 0xFF;
+    mes->len_h = (len >> 8) & 0xFF;
+    uint16_t checksum = gen_checksum(buf);
+    memcpy(mes->data, buf, len);
+    int r = write(client->fd, mes, m_size);
+    if (r < 0) {
+        perror("ERROR writing to socket\n");
+        fflush(stderr);
+        return -1;
+    }
+    return 1;
+}
+
+void print_buf(uint8_t* buf, uint16_t size)
+{
+    for (uint16_t i = 0; i < size; i++)
+        printf("%x ", buf[i]);
+    printf("\n");
+}
+
+int receive_message(struct message** mes, struct client_info* client)
+{
+    *mes = malloc(sizeof(struct message));
+    uint16_t len = 0, sum = 0;
+    int r = read(client->fd, *mes, sizeof(struct message));
+    if (r < 0) {
+        perror("ERROR reading from socket\n");
+        fflush(stderr);
+        return -1;
+    }
+    len = (*mes)->len_l & 0xFF;
+    len |= 0xFF00 & ((*mes)->len_h << 8);
+    int m_size = sizeof(struct message) + len;
+    *mes = malloc(m_size);
+    r = read(client->fd, (*mes)->data, len + 1);
+    //printf("%s\n", (*mes)->data);
+    if (r < 0) {
+        perror("ERROR reading from socket\n");
+        fflush(stderr);
+        return -1;
+    }
+    return 1;
+}
+
 void execute_command(char* command, char* output)
 {
-    FILE* f;
-    char buf[MESSAGE_LENGTH];
-    if (strlen(command) > MESSAGE_LENGTH - 6) {
-        memcpy(output, "command is longer then 1024", 27);
+    if (0 >= strlen(command)) {
         return;
     }
-    memcpy(command + strlen(command) - 1, " 2>&1", 5);
+    printf("commmmand: %s\n", command);
+    FILE* f;
+    int appendix = 5;
+    char* buf = malloc(strlen(command) + appendix);
+    memcpy(buf, command, strlen(command));
+    memcpy(buf + strlen(command) - 1, " 2>&1", appendix);
     f = popen(command, "r");
     int count = 0, size = 0;
     char c;
@@ -47,6 +118,7 @@ void execute_command(char* command, char* output)
     }
     if (0 >= count)
         memcpy(output, "no output\n", 10);
+    free(buf);
 }
 
 void* communicate_with_client(void *arg)
@@ -54,29 +126,34 @@ void* communicate_with_client(void *arg)
     struct client_info* client = (struct client_info*)arg;
     char bufferin[MESSAGE_LENGTH];
     char bufferout[MESSAGE_LENGTH];
-    memcpy(bufferout, "connection succedeed", 20);
-    int r = write(client->fd, bufferout, strlen(bufferout));
+    char* d = "connection succedeed";
+    memcpy(bufferout, d, strlen(d));
+    int r = send_message(bufferout, client);
+    if (0 > r) {
+        remove_client(client);
+        return;
+    }
+    struct message* m;
     while (1) {
-        memset(bufferin, 0, MESSAGE_LENGTH);
-        r = read(client->fd, bufferin, MESSAGE_LENGTH);
+        r = receive_message(&m, client);
         if (r < 0) {
             perror("ERROR reading from socket\n");
             fflush(stderr);
             break;
         }
         memset(bufferout, 0, MESSAGE_LENGTH);
-        if (0 == strcmp(bufferin, "disconnect\n")) {
+        if (0 == strcmp(m->data, "disconnect\n")) {
             memcpy(bufferout, "disconnection done", 18);
-            r = write(client->fd, bufferout, strlen(bufferout));
+            r = send_message(bufferout, client);
             printf("client disconnected: %p\n", client);
             fflush(stdout);
             break;
         } else {
-            printf("client: %p, shell command: %s\n", client, bufferin);
+            printf("client: %p, shell command: %s\n", client, m->data);
             fflush(stdout);
-            execute_command(bufferin, bufferout);
+            execute_command(m->data, bufferout);
         }
-        r = write(client->fd, bufferout, strlen(bufferout));
+        r = send_message(bufferout, client);
         if (r < 0) {
             perror("ERROR writing to socket\n");
             fflush(stderr);

@@ -1,6 +1,8 @@
 #include <netinet/in.h>
 #include <pthread.h>
 
+#include "../common/common.h"
+
 #pragma once
 
 #define MESSAGE_LENGTH 1024
@@ -45,3 +47,15 @@ void accept_clients();
 
 // function working in thread to handle communication with client
 void* communicate_with_client(void *args);
+
+// Send message to the specific client
+// @params
+//  message - message to send
+//  client - specific client to send the message
+int send_message(char* message, struct client_info* client);
+
+// Receive message from the specific client
+// @params
+//  message - buffer to store received message
+//  client - specific client to send the message
+int receive_message(struct message** mes, struct client_info* client);

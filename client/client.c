@@ -10,9 +10,81 @@
 #include <pthread.h>
 
 #include "client.h"
+#include "../common/common.h"
 
 void sigterm_handler( int signum ) {
     sigterm = 1;
+}
+
+uint16_t gen_checksum(char* data)
+{
+    uint16_t length = (uint16_t)strlen(data);
+    uint16_t checksum = 0;
+    size_t even_length = length - length%2; // Round down to multiple of 2
+    int i;
+    for (i = 0; i < even_length; i += 2) {
+        uint16_t val = data[i] + 256 * data[i+1];
+        checksum += val;
+    }
+    if (i < length) { // Last byte if it's odd length
+        checksum += data[i];
+    }
+    return checksum;
+}
+
+int send_message(char* buf, int s_fd)
+{
+    uint16_t len = (uint16_t)strlen(buf);
+    int m_size = sizeof(struct message) + len;
+    struct message* mes = malloc(m_size);
+    mes->len_l = len & 0xFF;
+    mes->len_h = (len >> 8) & 0xFF;
+    memcpy(mes->data, buf, len);
+    int r = write(s_fd, mes, m_size);
+    if (r < 0) {
+        perror("ERROR writing to socket\n");
+        fflush(stderr);
+        return -1;
+    }
+    return 1;
+}
+
+void print_buf(uint8_t* buf, uint16_t size)
+{
+    for (uint16_t i = 0; i < size; i++)
+        printf("%x ", buf[i]);
+    printf("\n");
+}
+
+int receive_message(struct message** mes, int s_fd)
+{
+    *mes = malloc(sizeof(struct message));
+    uint16_t len = 0, sum = 0;
+    int r = read(s_fd, *mes, sizeof(struct message));
+    if (r < 0) {
+        perror("ERROR reading from socket\n");
+        fflush(stderr);
+        return -1;
+    }
+    len = (*mes)->len_l & 0xFF;
+    len |= 0xFF00 & ((*mes)->len_h << 8);
+    int m_size = sizeof(struct message) + len;
+    *mes = malloc(m_size);
+    r = read(s_fd, (*mes)->data, len + 1);
+    if (r < 0) {
+        free(*mes);
+        perror("ERROR reading from socket\n");
+        fflush(stderr);
+        return -1;
+    }
+    //uint16_t checksum = gen_checksum((*mes)->data);
+    //if (checksum != sum) {
+    //    free(*mes);
+    //    perror("ERROR received message is corrupted\n");
+    //    fflush(stderr);
+    //    return -1;
+    //}
+    return 1;
 }
 
 int init_server_socket(char* host, int port)
@@ -43,22 +115,26 @@ int init_server_socket(char* host, int port)
         return -1;
     }
     char buffer[MESSAGE_LENGTH];
-    int r = read(sock_fd, buffer, MESSAGE_LENGTH);
+    struct message* m;
+    int r = receive_message(&m, sock_fd); 
     if (r < 0) {
         perror("ERROR reading from socket");
         return -1;
     }
-    if (0 == strcmp(buffer, "max conenction excided\n")) {
+    if (0 == strcmp(m->data, "max conenction excided\n")) {
         close(sock_fd);
+        free(m);
         return -1;
     }
-    printf("%s\n", buffer);
+    printf("%s\n", m->data);
+    free(m);
     return sock_fd;
 }
 
 void communicate()
 {
     char buffer[MESSAGE_LENGTH];
+    struct message* m;
     while(1) {
         if (sigterm) {
             break;
@@ -66,20 +142,23 @@ void communicate()
         printf("Please enter the command: ");
         memset(buffer, 0, MESSAGE_LENGTH);
         fgets(buffer,MESSAGE_LENGTH,stdin);
-        int r = write(sock_fd,buffer,strlen(buffer));
+        int r = send_message(buffer, sock_fd);
         if (r < 0) {
             perror("ERROR writing to socket");
             break;
         }
         memset(buffer, 0, MESSAGE_LENGTH);
-        r = read(sock_fd, buffer, MESSAGE_LENGTH);
+        r = receive_message(&m, sock_fd); 
         if (r < 0) {
             perror("ERROR reading from socket");
             break;
         }
-        printf("%s\n", buffer);
-        if (0 == strcmp(buffer, "disconnection done"))
+        printf("%s\n", m->data);
+        if (0 == strcmp(buffer, "disconnection done")) {
+            free(m);
             return;
+        }
+        free(m);
     }
 }
 
