@@ -8,8 +8,19 @@
 
 #include "server.h"
 
+// mutex to lock access to the shared array of clients info.
+pthread_mutex_t clients_array_lock;
+
+// variable to keep termination signal
+int sigterm = 0;
+
+// main socket file descriptor
+int sock_fd;
+
 void sigterm_handler( int signum )
 {
+    fflush(stdout);
+    fflush(stderr);
     sigterm = 1;
 }
 
@@ -43,30 +54,36 @@ void* communicate_with_client(void *arg)
     struct client_info* client = (struct client_info*)arg;
     char bufferin[MESSAGE_LENGTH];
     char bufferout[MESSAGE_LENGTH];
+    memcpy(bufferout, "connection succedeed", 20);
+    int r = write(client->fd, bufferout, strlen(bufferout));
     while (1) {
         memset(bufferin, 0, MESSAGE_LENGTH);
-        int r = read(client->fd, bufferin, MESSAGE_LENGTH);
+        r = read(client->fd, bufferin, MESSAGE_LENGTH);
         if (r < 0) {
-            perror("ERROR reading from socket");
-            return 0;
+            perror("ERROR reading from socket\n");
+            fflush(stderr);
+            break;
         }
         memset(bufferout, 0, MESSAGE_LENGTH);
         if (0 == strcmp(bufferin, "disconnect\n")) {
             memcpy(bufferout, "disconnection done", 18);
             r = write(client->fd, bufferout, strlen(bufferout));
-            remove_client(client);
             printf("client disconnected: %p\n", client);
-            return 0;
+            fflush(stdout);
+            break;
         } else {
             printf("client: %p, shell command: %s\n", client, bufferin);
+            fflush(stdout);
             execute_command(bufferin, bufferout);
         }
         r = write(client->fd, bufferout, strlen(bufferout));
         if (r < 0) {
-            perror("ERROR writing to socket");
-            return 0;
+            perror("ERROR writing to socket\n");
+            fflush(stderr);
+            break;
         }
     }
+    remove_client(client);
 }
 
 void add_client(struct client_info* client)
@@ -93,6 +110,8 @@ void remove_client(struct client_info* client)
             j++;
         }
     }
+    close(client->fd);
+    free(client);
     free(clients);
     clients = new_clients;
     client_size--;
@@ -105,7 +124,8 @@ int init_server_socket(int port)
     // Create socket file
     sock_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (sock_fd < 0) {
-        perror("ERROR opening socket");
+        perror("ERROR opening socket\n");
+        fflush(stderr);
         return -1;
     }
     memset(&serv_addr, 0, sizeof(serv_addr));
@@ -117,7 +137,8 @@ int init_server_socket(int port)
     serv_addr.sin_port = htons(port);
     // bind socket to interface and port set in serv_addr
     if (bind(sock_fd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
-        perror ("ERROR on binding");
+        perror ("ERROR on binding\n");
+        fflush(stderr);
         return -1;
     }
     listen(sock_fd, 5);
@@ -134,18 +155,39 @@ void accept_clients()
         sleep(1);
         if (sigterm) {
             printf("terminated\n");
+            fflush(stdout);
             break;
         }
         c->fd = accept(sock_fd, (struct sockaddr *) &(c->socket_addr), &clilen);
         if (c->fd < 0) {
-            perror("ERROR on accept");
+            perror("ERROR on accept\n");
+            fflush(stderr);
             free(c);
             continue;
         }
         add_client(c);
+        if (MAX_CLIENT_COUNT < client_size) {
+            int r = write(c->fd, "max conenction excided\n", 23);
+            if (r < 0)
+                perror("ERROR writing to socket\n");
+                fflush(stderr);
+            remove_client(c);
+            printf("client not accepted: %p\n", c);
+            fflush(stdout);
+            continue;
+        }
         pthread_create(&c->thread, NULL, communicate_with_client, c);
         printf("new client connected: %p\n", c);
+        fflush(stdout);
     }
+}
+
+void daemonize(char* logfile)
+{
+    printf("PID: %d\n", getpid());
+    freopen(logfile,"a",stdout);
+    freopen(logfile,"a",stderr);
+    daemon(1, 1);
 }
 
 int main(int argc, char *argv[])
@@ -170,6 +212,7 @@ int main(int argc, char *argv[])
     int sockfd = init_server_socket(port);
     if (sockfd <= 0)
         return sockfd;
+    daemonize("/tmp/server.log");
     accept_clients();
     printf("application finished\n");
 }

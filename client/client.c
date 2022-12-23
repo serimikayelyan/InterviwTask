@@ -42,6 +42,17 @@ int init_server_socket(char* host, int port)
         perror("ERROR connecting");
         return -1;
     }
+    char buffer[MESSAGE_LENGTH];
+    int r = read(sock_fd, buffer, MESSAGE_LENGTH);
+    if (r < 0) {
+        perror("ERROR reading from socket");
+        return -1;
+    }
+    if (0 == strcmp(buffer, "max conenction excided\n")) {
+        close(sock_fd);
+        return -1;
+    }
+    printf("%s\n", buffer);
     return sock_fd;
 }
 

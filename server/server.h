@@ -1,16 +1,10 @@
 #include <netinet/in.h>
 #include <pthread.h>
 
+#pragma once
+
 #define MESSAGE_LENGTH 1024
-
-// mutex to lock access to the shared array of clients info.
-pthread_mutex_t clients_array_lock;
-
-// variable to keep termination signal
-int sigterm = 0;
-
-// main socket file descriptor
-int sock_fd;
+#define MAX_CLIENT_COUNT 5
 
 // Structure to hold all required client infos
 struct client_info
